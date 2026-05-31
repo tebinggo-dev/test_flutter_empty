@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:async';
+import 'dart:math';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,16 +20,54 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Ojek Driver',
+      title: 'Ojek Online',
       theme: ThemeData(primarySwatch: Colors.green),
-      home: const LoginPage(),
+      home: const RoleSelectionPage(),
       debugShowCheckedModeBanner: false,
     );
   }
 }
 
+// ========== HALAMAN PILIH ROLE ==========
+class RoleSelectionPage extends StatelessWidget {
+  const RoleSelectionPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Pilih Peran')),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => LoginPage(role: 'driver')));
+              },
+              icon: const Icon(Icons.motorcycle),
+              label: const Text('Masuk sebagai DRIVER', style: TextStyle(fontSize: 18)),
+              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15)),
+            ),
+            const SizedBox(height: 30),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => LoginPage(role: 'rider')));
+              },
+              icon: const Icon(Icons.person),
+              label: const Text('Masuk sebagai RIDER', style: TextStyle(fontSize: 18)),
+              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ========== HALAMAN LOGIN (UNIVERSAL) ==========
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  final String role;
+  const LoginPage({super.key, required this.role});
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -41,60 +80,87 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _login() async {
     final phone = _phoneController.text.trim();
     if (phone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Masukkan nomor HP')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Masukkan nomor HP')));
       return;
     }
     setState(() => _isLoading = true);
     try {
-      final existing = await Supabase.instance.client
-          .from('drivers')
-          .select()
-          .eq('phone', phone)
-          .maybeSingle();
-      if (existing == null) {
-        await Supabase.instance.client.from('drivers').insert({
-          'phone': phone,
-          'name': 'Driver $phone',
-          'status': 'offline',
-          'last_lat': 0.0,
-          'last_lng': 0.0,
-          'updated_at': DateTime.now().toIso8601String(),
-        });
+      if (widget.role == 'driver') {
+        // Cek atau buat driver
+        final existing = await Supabase.instance.client
+            .from('drivers')
+            .select()
+            .eq('phone', phone)
+            .maybeSingle();
+        if (existing == null) {
+          await Supabase.instance.client.from('drivers').insert({
+            'phone': phone,
+            'name': 'Driver $phone',
+            'status': 'offline',
+            'last_lat': 0.0,
+            'last_lng': 0.0,
+            'updated_at': DateTime.now().toIso8601String(),
+          });
+        }
+        if (!mounted) return;
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => DriverHomePage(phone: phone)));
+      } else {
+        // Rider: cek atau buat di tabel riders (atau users). Buat tabel riders jika belum.
+        // Sederhana: kita pakai tabel users untuk rider.
+        await _ensureRidersTable();
+        final existing = await Supabase.instance.client
+            .from('riders')
+            .select()
+            .eq('phone', phone)
+            .maybeSingle();
+        if (existing == null) {
+          await Supabase.instance.client.from('riders').insert({
+            'phone': phone,
+            'name': 'Rider $phone',
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        }
+        if (!mounted) return;
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => RiderHomePage(phone: phone)));
       }
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => DriverHomePage(phone: phone)),
-      );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gagal login: $e')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal login: $e')));
     } finally {
       setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _ensureRidersTable() async {
+    // Buat tabel riders jika belum ada
+    try {
+      await Supabase.instance.client.from('riders').select().limit(1);
+    } catch (_) {
+      await Supabase.instance.client.execute('''
+        CREATE TABLE IF NOT EXISTS riders (
+          phone TEXT PRIMARY KEY,
+          name TEXT,
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+        ALTER TABLE riders DISABLE ROW LEVEL SECURITY;
+      ''');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Login Driver Ojek')),
+      appBar: AppBar(title: Text('Login ${widget.role == 'driver' ? 'Driver' : 'Rider'}')),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('Masukkan nomor HP driver', style: TextStyle(fontSize: 18)),
+            Text('Masukkan nomor HP', style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 20),
             TextField(
               controller: _phoneController,
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Contoh: 081234567890',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: 'Contoh: 081234567890', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 20),
             _isLoading
@@ -111,6 +177,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
+// ========== HALAMAN DRIVER (SAMA SEPERTI SEBELUMNYA, DIPERBAIKI) ==========
 class DriverHomePage extends StatefulWidget {
   final String phone;
   const DriverHomePage({super.key, required this.phone});
@@ -141,9 +208,7 @@ class _DriverHomePageState extends State<DriverHomePage> {
       _startLocationUpdates();
       _startOrderPolling();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Izin lokasi diperlukan')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Izin lokasi diperlukan')));
     }
   }
 
@@ -349,6 +414,158 @@ class _DriverHomePageState extends State<DriverHomePage> {
                       },
                     )
           : const Center(child: Text('Aktifkan status ONLINE untuk melihat order', style: TextStyle(fontSize: 16))),
+    );
+  }
+}
+
+// ========== HALAMAN RIDER ==========
+class RiderHomePage extends StatefulWidget {
+  final String phone;
+  const RiderHomePage({super.key, required this.phone});
+
+  @override
+  State<RiderHomePage> createState() => _RiderHomePageState();
+}
+
+class _RiderHomePageState extends State<RiderHomePage> {
+  final _pickupController = TextEditingController();
+  final _dropoffController = TextEditingController();
+  bool _isOrdering = false;
+  List<Map<String, dynamic>> _myOrders = [];
+  Timer? _orderStatusTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchMyOrders();
+    _startOrderStatusPolling();
+  }
+
+  void _startOrderStatusPolling() {
+    _orderStatusTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _fetchMyOrders();
+    });
+  }
+
+  Future<void> _fetchMyOrders() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('orders')
+          .select()
+          .eq('rider_phone', widget.phone)
+          .order('created_at', ascending: false);
+      if (mounted) setState(() => _myOrders = List<Map<String, dynamic>>.from(response));
+    } catch (e) {
+      print('Error fetch my orders: $e');
+    }
+  }
+
+  Future<void> _placeOrder() async {
+    final pickup = _pickupController.text.trim();
+    final dropoff = _dropoffController.text.trim();
+    if (pickup.isEmpty || dropoff.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Isi alamat jemput dan tujuan')));
+      return;
+    }
+    setState(() => _isOrdering = true);
+    try {
+      final orderId = DateTime.now().millisecondsSinceEpoch.toString();
+      await Supabase.instance.client.from('orders').insert({
+        'id': orderId,
+        'rider_phone': widget.phone,
+        'pickup_address': pickup,
+        'dropoff_address': dropoff,
+        'status': 'waiting_for_driver',
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      _pickupController.clear();
+      _dropoffController.clear();
+      await _fetchMyOrders();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order diproses, cari driver...')));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal order: $e')));
+    } finally {
+      setState(() => _isOrdering = false);
+    }
+  }
+
+  String _getStatusText(String status) {
+    switch (status) {
+      case 'waiting_for_driver': return '⏳ Mencari driver...';
+      case 'assigned': return '🛵 Driver ditugaskan';
+      case 'completed': return '✅ Selesai';
+      default: return status;
+    }
+  }
+
+  @override
+  void dispose() {
+    _orderStatusTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Ojek Rider')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Pesan Ojek', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _pickupController,
+              decoration: const InputDecoration(labelText: 'Alamat jemput', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _dropoffController,
+              decoration: const InputDecoration(labelText: 'Alamat tujuan', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 20),
+            _isOrdering
+                ? const Center(child: CircularProgressIndicator())
+                : ElevatedButton(
+                    onPressed: _placeOrder,
+                    style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+                    child: const Text('CARI OJEK'),
+                  ),
+            const SizedBox(height: 30),
+            const Text('Riwayat Order', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            if (_myOrders.isEmpty)
+              const Center(child: Text('Belum ada order', style: TextStyle(fontSize: 16)))
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _myOrders.length,
+                itemBuilder: (context, index) {
+                  final order = _myOrders[index];
+                  return Card(
+                    margin: const EdgeInsets.symmetric(vertical: 6),
+                    child: ListTile(
+                      title: Text('Dari: ${order['pickup_address']}'),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Ke: ${order['dropoff_address']}'),
+                          Text('Status: ${_getStatusText(order['status'])}',
+                              style: TextStyle(fontWeight: FontWeight.bold,
+                                color: order['status'] == 'completed' ? Colors.green : Colors.orange)),
+                          if (order['driver_phone'] != null && order['status'] == 'assigned')
+                            Text('Driver: ${order['driver_phone']}'),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
