@@ -25,5 +25,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: app-release.v1.2
+          path: build/app/outputs/flutter-apk/app-release.v1.2.apk
