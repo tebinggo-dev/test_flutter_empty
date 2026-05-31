@@ -1,122 +1,354 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:async';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Supabase.initialize(
+    url: 'https://yhedzqbxiaqfovyxnoes.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloZWR6cWJ4aWFxZm92eXhub2VzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyMTc0MjQsImV4cCI6MjA5NTc5MzQyNH0.BrZ9iplazm-e_2RNjyRJ-LErsGIX9_8pGEe9V6MpiR8',
+  );
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      title: 'Ojek Driver',
+      theme: ThemeData(primarySwatch: Colors.green),
+      home: const LoginPage(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<LoginPage> createState() => _LoginPageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _LoginPageState extends State<LoginPage> {
+  final TextEditingController _phoneController = TextEditingController();
+  bool _isLoading = false;
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  Future<void> _login() async {
+    final phone = _phoneController.text.trim();
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Masukkan nomor HP')),
+      );
+      return;
+    }
+    setState(() => _isLoading = true);
+    try {
+      final existing = await Supabase.instance.client
+          .from('drivers')
+          .select()
+          .eq('phone', phone)
+          .maybeSingle();
+      if (existing == null) {
+        await Supabase.instance.client.from('drivers').insert({
+          'phone': phone,
+          'name': 'Driver $phone',
+          'status': 'offline',
+          'last_lat': 0.0,
+          'last_lng': 0.0,
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+      }
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => DriverHomePage(phone: phone)),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal login: $e')),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+      appBar: AppBar(title: const Text('Login Driver Ojek')),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+            const Text('Masukkan nomor HP driver', style: TextStyle(fontSize: 18)),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _phoneController,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Contoh: 081234567890',
+                border: OutlineInputBorder(),
+              ),
             ),
+            const SizedBox(height: 20),
+            _isLoading
+                ? const CircularProgressIndicator()
+                : ElevatedButton(
+                    onPressed: _login,
+                    style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+                    child: const Text('LOGIN / DAFTAR'),
+                  ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
+    );
+  }
+}
+
+class DriverHomePage extends StatefulWidget {
+  final String phone;
+  const DriverHomePage({super.key, required this.phone});
+
+  @override
+  State<DriverHomePage> createState() => _DriverHomePageState();
+}
+
+class _DriverHomePageState extends State<DriverHomePage> {
+  bool _isOnline = false;
+  bool _isLoadingLocation = false;
+  Timer? _locationTimer;
+  Timer? _orderPollingTimer;
+  List<Map<String, dynamic>> _availableOrders = [];
+  bool _isLoadingOrders = false;
+  String? _currentOrderId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDriverStatus();
+    _requestPermissionsAndStart();
+  }
+
+  Future<void> _requestPermissionsAndStart() async {
+    final status = await Permission.location.request();
+    if (status.isGranted) {
+      _startLocationUpdates();
+      _startOrderPolling();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Izin lokasi diperlukan')),
+      );
+    }
+  }
+
+  Future<void> _loadDriverStatus() async {
+    try {
+      final data = await Supabase.instance.client
+          .from('drivers')
+          .select('status')
+          .eq('phone', widget.phone)
+          .single();
+      setState(() => _isOnline = data['status'] == 'online');
+    } catch (e) {
+      print('Error load status: $e');
+    }
+  }
+
+  void _startLocationUpdates() {
+    _locationTimer?.cancel();
+    _locationTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+      if (_isOnline) await _updateLocation();
+    });
+    if (_isOnline) _updateLocation();
+  }
+
+  Future<void> _updateLocation() async {
+    setState(() => _isLoadingLocation = true);
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) await Geolocator.requestPermission();
+      final position = await Geolocator.getCurrentPosition();
+      await Supabase.instance.client.from('drivers').update({
+        'last_lat': position.latitude,
+        'last_lng': position.longitude,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('phone', widget.phone);
+    } catch (e) {
+      print('Update lokasi error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingLocation = false);
+    }
+  }
+
+  void _startOrderPolling() {
+    _orderPollingTimer?.cancel();
+    _orderPollingTimer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+      if (_isOnline && _currentOrderId == null) await _fetchAvailableOrders();
+    });
+  }
+
+  Future<void> _fetchAvailableOrders() async {
+    if (_isLoadingOrders) return;
+    setState(() => _isLoadingOrders = true);
+    try {
+      final response = await Supabase.instance.client
+          .from('orders')
+          .select()
+          .eq('status', 'waiting_for_driver')
+          .order('created_at', ascending: false);
+      if (mounted) setState(() => _availableOrders = List<Map<String, dynamic>>.from(response));
+    } catch (e) {
+      print('Error fetch orders: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingOrders = false);
+    }
+  }
+
+  Future<void> _toggleOnlineStatus(bool value) async {
+    setState(() => _isOnline = value);
+    final newStatus = value ? 'online' : 'offline';
+    try {
+      await Supabase.instance.client
+          .from('drivers')
+          .update({'status': newStatus})
+          .eq('phone', widget.phone);
+      if (value) {
+        await _updateLocation();
+        await _fetchAvailableOrders();
+      } else {
+        setState(() => _availableOrders.clear());
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ubah status: $e')));
+      setState(() => _isOnline = !value);
+    }
+  }
+
+  Future<void> _acceptOrder(Map<String, dynamic> order) async {
+    if (_currentOrderId != null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sedang mengantar order lain')));
+      return;
+    }
+    final orderId = order['id'];
+    try {
+      final current = await Supabase.instance.client
+          .from('orders')
+          .select('status')
+          .eq('id', orderId)
+          .single();
+      if (current['status'] != 'waiting_for_driver') {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order sudah diambil driver lain')));
+        await _fetchAvailableOrders();
+        return;
+      }
+      await Supabase.instance.client.from('orders').update({
+        'status': 'assigned',
+        'driver_phone': widget.phone,
+      }).eq('id', orderId);
+      setState(() {
+        _currentOrderId = orderId;
+        _availableOrders.removeWhere((o) => o['id'] == orderId);
+      });
+      _showOrderDetail(order);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal menerima order: $e')));
+    }
+  }
+
+  void _showOrderDetail(Map<String, dynamic> order) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Detail Order'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('🛵 Jemput: ${order['pickup_address']}'),
+            const SizedBox(height: 8),
+            Text('🏁 Tujuan: ${order['dropoff_address']}'),
+            const SizedBox(height: 8),
+            Text('👤 Penumpang: ${order['rider_phone']}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _completeOrder(order['id']);
+            },
+            child: const Text('SELESAIKAN'),
+          ),
+        ],
       ),
+    );
+  }
+
+  Future<void> _completeOrder(String orderId) async {
+    try {
+      await Supabase.instance.client.from('orders').update({
+        'status': 'completed',
+      }).eq('id', orderId);
+      setState(() => _currentOrderId = null);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order selesai')));
+      await _fetchAvailableOrders();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal selesaikan: $e')));
+    }
+  }
+
+  @override
+  void dispose() {
+    _locationTimer?.cancel();
+    _orderPollingTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Ojek Driver'),
+        actions: [
+          if (_isLoadingLocation)
+            const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+            ),
+          Switch(value: _isOnline, onChanged: _toggleOnlineStatus, activeColor: Colors.green),
+        ],
+      ),
+      body: _isOnline
+          ? _isLoadingOrders
+              ? const Center(child: CircularProgressIndicator())
+              : _availableOrders.isEmpty
+                  ? const Center(child: Text('Belum ada order. Tunggu sebentar...'))
+                  : ListView.builder(
+                      itemCount: _availableOrders.length,
+                      itemBuilder: (context, index) {
+                        final order = _availableOrders[index];
+                        return Card(
+                          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          child: ListTile(
+                            leading: const Icon(Icons.motorcycle, color: Colors.green),
+                            title: Text('Jemput: ${order['pickup_address']}'),
+                            subtitle: Text('Tujuan: ${order['dropoff_address']}'),
+                            trailing: ElevatedButton(
+                              onPressed: () => _acceptOrder(order),
+                              child: const Text('TERIMA'),
+                            ),
+                          ),
+                        );
+                      },
+                    )
+          : const Center(child: Text('Aktifkan status ONLINE untuk melihat order', style: TextStyle(fontSize: 16))),
     );
   }
 }
